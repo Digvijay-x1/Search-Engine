@@ -11,10 +11,16 @@
 const std::string REDIS_HOST = "redis_service";
 const std::string DB_CONN_STR = "dbname=search_engine user=admin password=password123 host=postgres_service port=5432";
 const std::string SEED_URL = "https://en.wikipedia.org/wiki/Main_Page";
+const long CURL_TIMEOUT_SECONDS = 10;
+const int DB_MAX_RETRIES = 10;
+const int DB_RETRY_DELAY_SECONDS = 5;
+const int QUEUE_POLL_INTERVAL_SECONDS = 5;
+const int CRAWL_DELAY_SECONDS = 1;
+const size_t MIN_URL_LENGTH = 10;
 
 // --- CURL Callback ---
 size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    userp->append((char*)contents, size * nmemb);
+    userp->append(static_cast<const char*>(contents), size * nmemb);
     return size * nmemb;
 }
 
@@ -29,8 +35,10 @@ std::string download_url(const std::string& url) {
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L); // 10 second timeout
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, CURL_TIMEOUT_SECONDS);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 
         res = curl_easy_perform(curl);
         curl_easy_cleanup(curl);
@@ -43,20 +51,37 @@ std::string download_url(const std::string& url) {
     return readBuffer;
 }
 
+// --- Helper: Validate URL ---
+bool is_valid_url(const std::string& url) {
+    // Basic URL validation: check for http/https scheme and minimum length
+    if (url.length() < MIN_URL_LENGTH) return false;
+    
+    // Check for http:// or https:// prefix (safely)
+    if (url.compare(0, 7, "http://") == 0) return true;
+    if (url.compare(0, 8, "https://") == 0) return true;
+    
+    return false;
+}
+
 int main() {
     std::cout << "--- Crawler Service Started ---" << std::endl;
+
+    // Initialize CURL globally
+    curl_global_init(CURL_GLOBAL_DEFAULT);
 
     // 1. Connect to Redis
     redisContext *redis = redisConnect(REDIS_HOST.c_str(), 6379);
     if (redis == NULL || redis->err) {
-        std::cerr << "Redis connection failed" << std::endl;
+        std::cerr << "Redis connection failed: " << (redis ? redis->errstr : "Can't allocate context") << std::endl;
+        if (redis) redisFree(redis);
+        curl_global_cleanup();
         return 1;
     }
     std::cout << "Connected to Redis" << std::endl;
 
     // 2. Connect to Postgres (With Retry Logic)
     pqxx::connection* C = nullptr;
-    int retries = 10;
+    int retries = DB_MAX_RETRIES;
     while (retries > 0) {
         try {
             C = new pqxx::connection(DB_CONN_STR);
@@ -68,23 +93,45 @@ int main() {
             std::cerr << "Postgres connection attempt failed: " << e.what() << std::endl;
             if (C) { delete C; C = nullptr; }
         }
-        std::cout << "Retrying Postgres connection in 5 seconds..." << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::cout << "Retrying Postgres connection in " << DB_RETRY_DELAY_SECONDS << " seconds..." << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(DB_RETRY_DELAY_SECONDS));
         retries--;
     }
 
     if (!C || !C->is_open()) {
         std::cerr << "Failed to connect to Postgres after retries." << std::endl;
+        redisFree(redis);
+        curl_global_cleanup();
         return 1;
     }
 
     // 3. Seed the Queue (if empty)
     redisReply *reply = (redisReply*)redisCommand(redis, "LLEN crawl_queue");
+    if (reply == NULL) {
+        std::cerr << "Redis command LLEN crawl_queue failed." << std::endl;
+        redisFree(redis);
+        delete C;
+        curl_global_cleanup();
+        return 1;
+    }
+    
     if (reply->integer == 0) {
         std::cout << "Queue empty. Seeding: " << SEED_URL << std::endl;
         freeReplyObject(reply);
         // Push seed to Redis List (RPUSH)
         reply = (redisReply*)redisCommand(redis, "RPUSH crawl_queue %s", SEED_URL.c_str());
+        if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
+            std::string error_msg = "Unknown error";
+            if (reply && reply->type == REDIS_REPLY_ERROR && reply->str) {
+                error_msg = reply->str;
+            }
+            std::cerr << "Failed to seed crawl_queue with RPUSH: " << error_msg << std::endl;
+            if (reply) freeReplyObject(reply);
+            redisFree(redis);
+            delete C;
+            curl_global_cleanup();
+            return 1;
+        }
     }
     freeReplyObject(reply);
 
@@ -93,15 +140,34 @@ int main() {
         // A. Pop URL from Redis (LPOP)
         reply = (redisReply*)redisCommand(redis, "LPOP crawl_queue");
         
-        if (reply == NULL || reply->type == REDIS_REPLY_NIL) {
-            // std::cout << "Queue empty. Waiting 5s..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
-            if (reply) freeReplyObject(reply);
+        if (reply == NULL) {
+            std::cerr << "Redis LPOP command failed" << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(QUEUE_POLL_INTERVAL_SECONDS));
+            continue;
+        }
+        
+        if (reply->type == REDIS_REPLY_NIL) {
+            // Queue is empty, wait before polling again
+            freeReplyObject(reply);
+            std::this_thread::sleep_for(std::chrono::seconds(QUEUE_POLL_INTERVAL_SECONDS));
+            continue;
+        }
+
+        if (reply->type != REDIS_REPLY_STRING) {
+            std::cerr << "Unexpected Redis reply type: " << reply->type << std::endl;
+            freeReplyObject(reply);
             continue;
         }
 
         std::string url = reply->str;
         freeReplyObject(reply);
+        
+        // Validate URL
+        if (!is_valid_url(url)) {
+            std::cerr << "Invalid URL format, skipping: " << url << std::endl;
+            continue;
+        }
+        
         std::cout << "Fetching: " << url << std::endl;
 
         // B. Insert into DB "Pending" to get an ID (and handle duplicates)
@@ -130,7 +196,7 @@ int main() {
         // C. Download HTML
         std::string html = download_url(url);
         if (html.empty()) {
-            std::cerr << "Failed to download." << std::endl;
+            std::cerr << "Failed to download: " << url << std::endl;
             // Mark as error in DB (Optional exercise for later)
             continue;
         }
@@ -140,7 +206,22 @@ int main() {
         std::string filepath = "/shared_data/" + filename;
         
         std::ofstream outFile(filepath);
+        if (!outFile.is_open()) {
+            std::cerr << "Failed to open file for writing: " << filepath << std::endl;
+            // Optionally mark as error in DB here
+            continue;
+        }
+        
         outFile << html;
+        
+        // Check if write succeeded before closing
+        if (!outFile.good()) {
+            std::cerr << "Failed to write to file: " << filepath << std::endl;
+            outFile.close();
+            // Optionally mark as error in DB here
+            continue;
+        }
+        
         outFile.close();
 
         // E. Update DB with file path
@@ -157,10 +238,8 @@ int main() {
         }
         
         // Be polite!
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(CRAWL_DELAY_SECONDS));
     }
 
-    redisFree(redis);
-    delete C;
     return 0;
 }
