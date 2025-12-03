@@ -31,6 +31,7 @@ std::string download_url(const std::string& url) {
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L); // 10 second timeout
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "MaxSearchEngineBot/1.0 (Open source search engine)"); // Set User-Agent
 
         res = curl_easy_perform(curl);
         curl_easy_cleanup(curl);

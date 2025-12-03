@@ -31,6 +31,8 @@ services:
       - ./python/ranker:/app  # Hot-reloading for Python
     environment:
       - FLASK_ENV=development
+    networks:
+      - search_net
 
   rails_interface:
     build: ./API
@@ -40,6 +42,8 @@ services:
       - ./API:/rails       # Hot-reloading for Ruby
     depends_on:
       - ranker_service
+    networks:
+      - search_net
 
 # --- The Worker (Crawler) ---
   crawler_service:
