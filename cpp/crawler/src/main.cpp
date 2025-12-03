@@ -56,11 +56,8 @@ bool is_valid_url(const std::string& url) {
     // Basic URL validation: check for http/https scheme and minimum length
     if (url.length() < MIN_URL_LENGTH) return false;
     
-    // Check for http:// (length 7) or https:// (length 8)
-    if (url.length() >= 7 && url.substr(0, 7) == "http://") return true;
-    if (url.length() >= 8 && url.substr(0, 8) == "https://") return true;
-    
-    return false;
+    // Check for http:// or https:// prefix
+    return (url.substr(0, 7) == "http://" || url.substr(0, 8) == "https://");
 }
 
 int main() {
@@ -122,7 +119,7 @@ int main() {
         reply = (redisReply*)redisCommand(redis, "RPUSH crawl_queue %s", SEED_URL.c_str());
         if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
             std::string error_msg = "Unknown error";
-            if (reply && reply->str) {
+            if (reply && reply->type == REDIS_REPLY_ERROR && reply->str) {
                 error_msg = reply->str;
             }
             std::cerr << "Failed to seed crawl_queue with RPUSH: " << error_msg << std::endl;
@@ -241,10 +238,5 @@ int main() {
         std::this_thread::sleep_for(std::chrono::seconds(CRAWL_DELAY_SECONDS));
     }
 
-    // Note: The following cleanup code is unreachable due to infinite loop above.
-    // In production, you should implement signal handlers for graceful shutdown.
-    // redisFree(redis);
-    // delete C;
-    // curl_global_cleanup();
     return 0;
 }
