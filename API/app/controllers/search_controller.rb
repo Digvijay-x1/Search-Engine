@@ -6,7 +6,7 @@ class SearchController < ApplicationController
     if @query.present?
       # "ranker_service" is the DNS name defined in docker-compose
       response = HTTParty.get("http://ranker_service:5000/search?q=#{@query}")
-      @results = JSON.parse(response.body)['results']
+      @results = JSON.parse(response.body)["results"]
     end
   end
 end
