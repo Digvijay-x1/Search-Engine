@@ -34,7 +34,7 @@ jobs:
     - name: Install System Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libpqxx-dev libhiredis-dev libgumbo-dev
+        sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libpqxx-dev libhiredis-dev
 
     - name: Configure CMake
       run: cmake src
@@ -43,7 +43,7 @@ jobs:
       run: make
 
   # 3. Rails API Checks
-  # Runs linting and security scans for the Ruby frontend.
+  # Runs linting and security scans for the Rails API.
   rails-checks:
     runs-on: ubuntu-latest
     defaults:
@@ -57,9 +57,6 @@ jobs:
       with:
         ruby-version: '3.4'
         bundler-cache: true
-        
-    - name: Install Dependencies
-      run: bundle install
       
     - name: Security Scan (Brakeman)
       # Only run if brakeman is in Gemfile, otherwise skip or install it
@@ -81,7 +78,7 @@ jobs:
 
   # 4. Python Ranker Checks
   # Basic syntax check for the Python service.
-  ranker-check:
+  ranker-checks:
     runs-on: ubuntu-latest
     defaults:
       run:
