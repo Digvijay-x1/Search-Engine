@@ -1,3 +1,0 @@
-/home/runner/work/Search-Engine/Search-Engine/cpp/crawler/build/CMakeFiles/crawler.dir
-/home/runner/work/Search-Engine/Search-Engine/cpp/crawler/build/CMakeFiles/edit_cache.dir
-/home/runner/work/Search-Engine/Search-Engine/cpp/crawler/build/CMakeFiles/rebuild_cache.dir
