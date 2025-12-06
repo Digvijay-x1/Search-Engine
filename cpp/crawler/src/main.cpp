@@ -1,16 +1,17 @@
 #include <iostream>
-#include <fstream>
 #include <string>
 #include <thread>
 #include <chrono>
 #include <curl/curl.h>
 #include <pqxx/pqxx>
 #include <hiredis/hiredis.h>
+#include "warc_writer.hpp"
 
 // --- Config ---
 const std::string REDIS_HOST = "redis_service";
 const std::string DB_CONN_STR = "dbname=search_engine user=admin password=password123 host=postgres_service port=5432";
 const std::string SEED_URL = "https://en.wikipedia.org/wiki/Main_Page";
+const std::string WARC_FILENAME = "/shared_data/crawled.warc.gz";
 const long CURL_TIMEOUT_SECONDS = 10;
 const int DB_MAX_RETRIES = 10;
 const int DB_RETRY_DELAY_SECONDS = 5;
@@ -54,20 +55,15 @@ std::string download_url(const std::string& url) {
 
 // --- Helper: Validate URL ---
 bool is_valid_url(const std::string& url) {
-    // Basic URL validation: check for http/https scheme and minimum length
     if (url.length() < MIN_URL_LENGTH) return false;
-    
-    // Check for http:// or https:// prefix (safely)
     if (url.compare(0, 7, "http://") == 0) return true;
     if (url.compare(0, 8, "https://") == 0) return true;
-    
     return false;
 }
 
 int main() {
-    std::cout << "--- Crawler Service Started ---" << std::endl;
+    std::cout << "--- Crawler Service Started (WARC Mode) ---" << std::endl;
 
-    // Initialize CURL globally
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     // 1. Connect to Redis
@@ -80,7 +76,7 @@ int main() {
     }
     std::cout << "Connected to Redis" << std::endl;
 
-    // 2. Connect to Postgres (With Retry Logic)
+    // 2. Connect to Postgres
     pqxx::connection* C = nullptr;
     int retries = DB_MAX_RETRIES;
     while (retries > 0) {
@@ -106,76 +102,39 @@ int main() {
         return 1;
     }
 
-    // 3. Seed the Queue (if empty)
+    // 3. Seed the Queue
     redisReply *reply = (redisReply*)redisCommand(redis, "LLEN crawl_queue");
-    if (reply == NULL) {
-        std::cerr << "Redis command LLEN crawl_queue failed." << std::endl;
-        redisFree(redis);
-        delete C;
-        curl_global_cleanup();
-        return 1;
-    }
-    
-    if (reply->integer == 0) {
+    if (reply && reply->integer == 0) {
         std::cout << "Queue empty. Seeding: " << SEED_URL << std::endl;
         freeReplyObject(reply);
-        // Push seed to Redis List (RPUSH)
         reply = (redisReply*)redisCommand(redis, "RPUSH crawl_queue %s", SEED_URL.c_str());
-        if (reply == NULL || reply->type == REDIS_REPLY_ERROR) {
-            std::string error_msg = "Unknown error";
-            if (reply && reply->type == REDIS_REPLY_ERROR && reply->str) {
-                error_msg = reply->str;
-            }
-            std::cerr << "Failed to seed crawl_queue with RPUSH: " << error_msg << std::endl;
-            if (reply) freeReplyObject(reply);
-            redisFree(redis);
-            delete C;
-            curl_global_cleanup();
-            return 1;
-        }
     }
-    freeReplyObject(reply);
+    if (reply) freeReplyObject(reply);
 
-    // 4. The Infinite Crawl Loop
+    // 4. Initialize WarcWriter
+    WarcWriter warc_writer(WARC_FILENAME);
+
+    // 5. The Infinite Crawl Loop
     while (true) {
-        // A. Pop URL from Redis (LPOP)
         reply = (redisReply*)redisCommand(redis, "LPOP crawl_queue");
         
-        if (reply == NULL) {
-            std::cerr << "Redis LPOP command failed" << std::endl;
+        if (reply == NULL || reply->type == REDIS_REPLY_NIL) {
+            if (reply) freeReplyObject(reply);
             std::this_thread::sleep_for(std::chrono::seconds(QUEUE_POLL_INTERVAL_SECONDS));
-            continue;
-        }
-        
-        if (reply->type == REDIS_REPLY_NIL) {
-            // Queue is empty, wait before polling again
-            freeReplyObject(reply);
-            std::this_thread::sleep_for(std::chrono::seconds(QUEUE_POLL_INTERVAL_SECONDS));
-            continue;
-        }
-
-        if (reply->type != REDIS_REPLY_STRING) {
-            std::cerr << "Unexpected Redis reply type: " << reply->type << std::endl;
-            freeReplyObject(reply);
             continue;
         }
 
         std::string url = reply->str;
         freeReplyObject(reply);
         
-        // Validate URL
-        if (!is_valid_url(url)) {
-            std::cerr << "Invalid URL format, skipping: " << url << std::endl;
-            continue;
-        }
+        if (!is_valid_url(url)) continue;
         
         std::cout << "Fetching: " << url << std::endl;
 
-        // B. Insert into DB "Pending" to get an ID (and handle duplicates)
+        // B. Insert into DB "Pending"
         int doc_id = -1;
         try {
             pqxx::work W(*C);
-            // Insert and return ID. If URL exists, do nothing.
             pqxx::result R = W.exec_params(
                 "INSERT INTO documents (url, status) VALUES ($1, 'processing') ON CONFLICT (url) DO NOTHING RETURNING id",
                 url
@@ -184,7 +143,7 @@ int main() {
             if (R.empty()) {
                 std::cout << "Skipping duplicate: " << url << std::endl;
                 W.commit();
-                continue; // Skip to next URL
+                continue;
             }
             
             doc_id = R[0][0].as<int>();
@@ -198,47 +157,26 @@ int main() {
         std::string html = download_url(url);
         if (html.empty()) {
             std::cerr << "Failed to download: " << url << std::endl;
-            // Mark as error in DB (Optional exercise for later)
             continue;
         }
 
-        // D. Save to Disk
-        std::string filename = "doc_" + std::to_string(doc_id) + ".html";
-        std::string filepath = "/shared_data/" + filename;
-        
-        std::ofstream outFile(filepath);
-        if (!outFile.is_open()) {
-            std::cerr << "Failed to open file for writing: " << filepath << std::endl;
-            // Optionally mark as error in DB here
-            continue;
-        }
-        
-        outFile << html;
-        
-        // Check if write succeeded before closing
-        if (!outFile.good()) {
-            std::cerr << "Failed to write to file: " << filepath << std::endl;
-            outFile.close();
-            // Optionally mark as error in DB here
-            continue;
-        }
-        
-        outFile.close();
-
-        // E. Update DB with file path
+        // D. Save to WARC
         try {
+            WarcRecordInfo info = warc_writer.write_record(url, html);
+
+            // E. Update DB
             pqxx::work W(*C);
             W.exec_params(
-                "UPDATE documents SET status = 'crawled', file_path = $1 WHERE id = $2",
-                filename, doc_id
+                "UPDATE documents SET status = 'crawled', file_path = $1, \"offset\" = $2, length = $3 WHERE id = $4",
+                "crawled.warc.gz", info.offset, info.length, doc_id
             );
             W.commit();
-            std::cout << "Saved " << filename << " (" << html.length() << " bytes)" << std::endl;
+            std::cout << "Saved to WARC at offset " << info.offset << " (" << info.length << " bytes)" << std::endl;
+
         } catch (const std::exception &e) {
-            std::cerr << "DB Update Error: " << e.what() << std::endl;
+            std::cerr << "Error saving WARC/DB: " << e.what() << std::endl;
         }
         
-        // Be polite!
         std::this_thread::sleep_for(std::chrono::seconds(CRAWL_DELAY_SECONDS));
     }
 
