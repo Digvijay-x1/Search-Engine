@@ -42,6 +42,10 @@ jobs:
     - name: Compile
       run: make
 
+    - name: Run Tests
+      run: ctest --output-on-failure
+
+
   # 3. Rails API Checks
   # Runs linting and security scans for the Rails API.
   rails-checks:

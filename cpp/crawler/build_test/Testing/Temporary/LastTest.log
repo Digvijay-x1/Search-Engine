@@ -1,0 +1,21 @@
+Start testing: Dec 06 15:33 IST
+----------------------------------------------------------
+1/1 Testing: WarcWriterTest
+1/1 Test: WarcWriterTest
+Command: "/home/digvijay/coding/project/Search-Engine/cpp/crawler/build_test/test_crawler"
+Directory: /home/digvijay/coding/project/Search-Engine/cpp/crawler/build_test
+"WarcWriterTest" start time: Dec 06 15:33 IST
+Output:
+----------------------------------------------------------
+test_file_creation passed
+test_write_record passed
+All tests passed!
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"WarcWriterTest" end time: Dec 06 15:33 IST
+"WarcWriterTest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Dec 06 15:33 IST

@@ -19,3 +19,12 @@ add_executable(crawler main.cpp warc_writer.cpp)
 # hiredis: Redis C Backend
 # z: Zlib
 target_link_libraries(crawler curl pqxx pq hiredis z)
+
+# Testing
+enable_testing()
+
+add_executable(test_crawler ../tests/test_warc_writer.cpp warc_writer.cpp)
+target_link_libraries(test_crawler curl pqxx pq hiredis z)
+
+add_test(NAME WarcWriterTest COMMAND test_crawler)
+
