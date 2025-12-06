@@ -120,7 +120,7 @@ int main() {
             reply = (redisReply*)redisCommand(redis, "RPUSH crawl_queue %s", SEED_URL.c_str());
             if (!reply || redis->err) {
                 std::cerr << "Failed to seed queue: " << (redis->err ? redis->errstr : "Unknown error") << std::endl;
-                std::cerr << "Queue will remain empty. Exiting." << std::endl;
+                std::cerr << "Failed to seed crawl queue with initial URL" << std::endl;
                 if (reply) freeReplyObject(reply);
                 redisFree(redis);
                 delete C;
