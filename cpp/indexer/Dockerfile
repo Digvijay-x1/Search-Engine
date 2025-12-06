@@ -14,3 +14,5 @@ WORKDIR /app
 COPY . .
 
 RUN cmake src && make
+
+CMD ["./indexer"]

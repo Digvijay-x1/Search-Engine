@@ -207,9 +207,41 @@ int main() {
             W.commit();
             std::cout << "Saved to WARC at offset " << info.offset << " (" << info.length << " bytes)" << std::endl;
 
-            // F. Push to Indexing Queue
-            reply = (redisReply*)redisCommand(redis, "RPUSH indexing_queue %d", doc_id);
-            if (reply) freeReplyObject(reply);
+            // F. Push to Indexing Queue with error handling and retries
+            const int MAX_RETRIES = 3;
+            bool push_success = false;
+            for (int attempt = 0; attempt < MAX_RETRIES; ++attempt) {
+                reply = (redisReply*)redisCommand(redis, "RPUSH indexing_queue %d", doc_id);
+                if (reply == NULL) {
+                    std::cerr << "Redis RPUSH failed for doc_id " << doc_id << " (attempt " << (attempt + 1) << "): NULL reply";
+                    if (redis->err) {
+                        std::cerr << ", Redis error: " << redis->errstr;
+                    }
+                    std::cerr << std::endl;
+                    // No reply to free
+                    continue;
+                }
+                if (reply->type == REDIS_REPLY_ERROR) {
+                    std::cerr << "Redis RPUSH error for doc_id " << doc_id << " (attempt " << (attempt + 1) << "): " << reply->str << std::endl;
+                    freeReplyObject(reply);
+                    continue;
+                }
+                // Success
+                freeReplyObject(reply);
+                push_success = true;
+                break;
+            }
+            if (!push_success) {
+                // Handle failure: update DB status to indicate not queued
+                try {
+                    pqxx::work W_fail(*C);
+                    W_fail.exec_params("UPDATE documents SET status = 'crawled_not_queued' WHERE id = $1", doc_id);
+                    W_fail.commit();
+                    std::cerr << "Failed to queue doc_id " << doc_id << " for indexing after " << MAX_RETRIES << " attempts, marked as crawled_not_queued" << std::endl;
+                } catch (const std::exception &e) {
+                    std::cerr << "Failed to update DB status for failed queue: " << e.what() << std::endl;
+                }
+            }
 
         } catch (const std::exception &e) {
             std::cerr << "Error saving WARC/DB: " << e.what() << std::endl;
