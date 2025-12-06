@@ -23,6 +23,8 @@ WarcWriter::~WarcWriter() {
 }
 
 WarcRecordInfo WarcWriter::write_record(const std::string& url, const std::string& content) {
+    std::lock_guard<std::mutex> lock(write_mutex);
+    
     std::string warc_header = create_warc_header(url, content.size());
     std::string full_record = warc_header + content + "\r\n\r\n";
     std::string compressed_record = compress_string(full_record);
@@ -32,8 +34,16 @@ WarcRecordInfo WarcWriter::write_record(const std::string& url, const std::strin
     
     file_stream.write(compressed_record.data(), compressed_record.size());
     
+    if (!file_stream.good()) {
+        throw std::runtime_error("Failed to write WARC record to file: write error");
+    }
+    
     // Ensure data is written to disk
     file_stream.flush();
+    
+    if (!file_stream.good()) {
+        throw std::runtime_error("Failed to write WARC record to file: flush error");
+    }
 
     return {offset, static_cast<int64_t>(compressed_record.size())};
 }
@@ -42,8 +52,12 @@ std::string WarcWriter::create_warc_header(const std::string& url, size_t conten
     std::time_t now = std::time(nullptr);
     char buf[100];
     struct tm tm_buf;
-    // Thread-safe time formatting
-    gmtime_r(&now, &tm_buf);
+    // Platform-agnostic thread-safe time formatting
+    #ifdef _WIN32
+        gmtime_s(&tm_buf, &now);
+    #else
+        gmtime_r(&now, &tm_buf);
+    #endif
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     
     std::stringstream ss;
@@ -59,9 +73,9 @@ std::string WarcWriter::create_warc_header(const std::string& url, size_t conten
 }
 
 std::string WarcWriter::generate_uuid() {
-    static std::random_device rd;
-    static std::mt19937_64 gen(rd());
-    static std::uniform_int_distribution<uint64_t> dis;
+    thread_local std::random_device rd;
+    thread_local std::mt19937_64 gen(rd());
+    thread_local std::uniform_int_distribution<uint64_t> dis;
 
     uint64_t part1 = dis(gen);
     uint64_t part2 = dis(gen);

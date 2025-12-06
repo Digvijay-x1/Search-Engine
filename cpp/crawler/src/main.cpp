@@ -120,11 +120,21 @@ int main() {
             reply = (redisReply*)redisCommand(redis, "RPUSH crawl_queue %s", SEED_URL.c_str());
             if (!reply || redis->err) {
                 std::cerr << "Failed to seed queue: " << (redis->err ? redis->errstr : "Unknown error") << std::endl;
+                std::cerr << "Queue will remain empty. Exiting." << std::endl;
+                if (reply) freeReplyObject(reply);
+                redisFree(redis);
+                delete C;
+                curl_global_cleanup();
+                return 1;
             }
         }
         if (reply) freeReplyObject(reply);
     } else {
         std::cerr << "Failed to check queue length." << std::endl;
+        redisFree(redis);
+        delete C;
+        curl_global_cleanup();
+        return 1;
     }
 
     // 4. Initialize WarcWriter
@@ -159,14 +169,10 @@ int main() {
         try {
             pqxx::work W(*C);
             
-            // Suppress deprecated warning for exec_params
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             pqxx::result R = W.exec_params(
                 "INSERT INTO documents (url, status) VALUES ($1, 'processing') ON CONFLICT (url) DO NOTHING RETURNING id",
                 url
             );
-            #pragma GCC diagnostic pop
             
             if (R.empty()) {
                 std::cout << "Skipping duplicate: " << url << std::endl;
@@ -194,13 +200,10 @@ int main() {
 
             // E. Update DB
             pqxx::work W(*C);
-            #pragma GCC diagnostic push
-            #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             W.exec_params(
                 "UPDATE documents SET status = 'crawled', file_path = $1, \"offset\" = $2, length = $3 WHERE id = $4",
                 warc_db_filename, info.offset, info.length, doc_id
             );
-            #pragma GCC diagnostic pop
             W.commit();
             std::cout << "Saved to WARC at offset " << info.offset << " (" << info.length << " bytes)" << std::endl;
 
