@@ -1,1 +1,0 @@
-/usr/bin/c++ -Wl,--dependency-file=CMakeFiles/test_crawler.dir/link.d "CMakeFiles/test_crawler.dir/home/digvijay/coding/project/Search-Engine/cpp/crawler/tests/test_warc_writer.cpp.o" CMakeFiles/test_crawler.dir/warc_writer.cpp.o -o test_crawler  -lcurl -lpqxx -lpq -lhiredis -lz
