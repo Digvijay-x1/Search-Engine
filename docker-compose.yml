@@ -29,6 +29,7 @@ services:
       - "5000:5000"
     volumes:
       - ./python/ranker:/app # Hot-reloading for Python
+      - ./data/crawled_pages:/shared_data
     environment:
       - FLASK_ENV=development
     networks:
