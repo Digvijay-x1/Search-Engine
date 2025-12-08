@@ -32,6 +32,10 @@ services:
       - ./data/crawled_pages:/shared_data
     environment:
       - FLASK_ENV=development
+      - DB_HOST=postgres_service
+      - DB_NAME=search_engine
+      - DB_USER=admin
+      - DB_PASS=password123
     networks:
       - search_net
 

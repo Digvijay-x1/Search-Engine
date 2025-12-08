@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from engine import Ranker
 import time
+import atexit
 
 app = Flask(__name__)
 
@@ -8,6 +9,7 @@ app = Flask(__name__)
 ranker = None
 try:
     ranker = Ranker()
+    atexit.register(ranker.close)
 except Exception as e:
     print(f"Failed to initialize Ranker: {e}")
 

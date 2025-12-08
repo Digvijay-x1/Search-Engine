@@ -1,4 +1,5 @@
 import os
+import re
 import psycopg2
 import numpy as np
 from collections import defaultdict
@@ -15,11 +16,19 @@ class Ranker:
     def __init__(self):
         # 1. Connect to Postgres (Metadata)
         try:
+            db_host = os.environ.get("DB_HOST", "postgres_service")
+            db_name = os.environ.get("DB_NAME", "search_engine")
+            db_user = os.environ.get("DB_USER")
+            db_pass = os.environ.get("DB_PASS")
+
+            if not db_user or not db_pass:
+                raise ValueError("DB_USER and DB_PASS environment variables must be set.")
+
             self.db_conn = psycopg2.connect(
-                host=os.environ.get("DB_HOST", "postgres_service"),
-                database=os.environ.get("DB_NAME", "search_engine"),
-                user=os.environ.get("DB_USER", "admin"),
-                password=os.environ.get("DB_PASS", "password123")
+                host=db_host,
+                database=db_name,
+                user=db_user,
+                password=db_pass
             )
             print("Connected to Postgres")
         except Exception as e:
@@ -45,9 +54,10 @@ class Ranker:
             "cats": "3,4"
         }
         
-        # 3. Load Global Stats (avgdl)
+        # 3. Load Global Stats (avgdl, total_docs)
         self.avgdl = self._calculate_avgdl()
-        print(f"Ranker initialized. AvgDL: {self.avgdl}")
+        self.total_docs = self._get_total_docs()
+        print(f"Ranker initialized. AvgDL: {self.avgdl}, Total Docs: {self.total_docs}")
 
     def _calculate_avgdl(self):
         if not self.db_conn:
@@ -61,12 +71,60 @@ class Ranker:
             print(f"Error calculating avgdl: {e}")
             return 100.0
 
+    def _get_total_docs(self):
+        if not self.db_conn:
+            return 1000 # Default
+        try:
+            with self.db_conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM documents")
+                count = cur.fetchone()[0]
+                return int(count) if count else 0
+        except Exception as e:
+            print(f"Error fetching total docs: {e}")
+            return 1000
+
+    def _get_doc_lengths(self, doc_ids):
+        """
+        Fetches document lengths for a list of doc_ids.
+        Returns a dictionary: {doc_id: length}
+        """
+        if not self.db_conn or not doc_ids:
+            return {}
+        
+        lengths = {}
+        try:
+            with self.db_conn.cursor() as cur:
+                # Use tuple(doc_ids) for SQL IN clause
+                # Handle single item tuple correctly
+                if len(doc_ids) == 1:
+                    query = "SELECT id, length FROM documents WHERE id = %s"
+                    params = (doc_ids[0],)
+                else:
+                    query = "SELECT id, length FROM documents WHERE id IN %s"
+                    params = (tuple(doc_ids),)
+                
+                cur.execute(query, params)
+                rows = cur.fetchall()
+                for r in rows:
+                    lengths[r[0]] = r[1]
+        except Exception as e:
+            print(f"Error fetching doc lengths: {e}")
+        return lengths
+
     def search(self, query, k=10):
         """
         Performs BM25 search for the given query.
         Returns top k results: [{'url': ..., 'title': ..., 'score': ...}]
         """
-        tokens = query.lower().split() # Simple tokenization
+        # Preprocessing to match Indexer:
+        # 1. Lowercase
+        # 2. Remove non-alphanumeric (keep spaces)
+        # 3. Split by whitespace
+        # 4. Filter length >= 3
+        
+        query_clean = re.sub(r'[^a-z0-9\s]', '', query.lower())
+        tokens = [t for t in query_clean.split() if len(t) >= 3]
+        
         if not tokens:
             return []
 
@@ -77,6 +135,10 @@ class Ranker:
         # Accumulate scores: doc_id -> score
         scores = defaultdict(float)
         
+        # 1. Retrieve all posting lists and candidate docs
+        token_postings = {} # token -> [doc_ids]
+        candidate_doc_ids = set()
+
         for token in tokens:
             # A. Get Posting List from RocksDB or Mock
             postings_str = None
@@ -101,20 +163,38 @@ class Ranker:
                 postings_str = postings_str.decode('utf-8')
             
             doc_ids = [int(d) for d in postings_str.split(',')]
-            
+            token_postings[token] = doc_ids
+            candidate_doc_ids.update(doc_ids)
+
+        if not candidate_doc_ids:
+            return []
+
+        # 2. Batch fetch document lengths
+        doc_lengths = self._get_doc_lengths(list(candidate_doc_ids))
+
+        # 3. Calculate BM25 Scores
+        for token in tokens:
+            doc_ids = token_postings.get(token, [])
+            if not doc_ids:
+                continue
+
             # Calculate IDF
             # IDF(q_i) = log( (N - n(q_i) + 0.5) / (n(q_i) + 0.5) + 1 )
-            # For simplicity in this phase, we'll use a basic IDF or just count
-            # We need N (total docs)
-            N = 1000 # Placeholder or fetch from DB
+            N = self.total_docs
+            if N == 0: N = 1 # Avoid division by zero issues if DB is empty
+            
             n_qi = len(doc_ids)
             idf = np.log((N - n_qi + 0.5) / (n_qi + 0.5) + 1)
             
             for doc_id in doc_ids:
-                # In a real implementation, we'd fetch doc_length and TF from the index/DB
-                # Here we do a simplified calculation
-                tf = 1 # Simplified
-                doc_len = 100 # Simplified placeholder
+                # TODO: Fetch real TF from index. Currently index only stores doc_ids.
+                # We assume TF=1 for now.
+                tf = 1 
+                
+                # Get doc_len, fallback to avgdl if missing (e.g. sync issue)
+                doc_len = doc_lengths.get(doc_id, self.avgdl)
+                if doc_len is None or doc_len == 0:
+                    doc_len = self.avgdl # Safety fallback
                 
                 # BM25 Score for this term
                 numerator = idf * tf * (k1 + 1)
@@ -152,3 +232,23 @@ class Ranker:
                 })
                     
         return results
+
+    def close(self):
+        """Closes the database connection."""
+        if self.db_conn:
+            try:
+                self.db_conn.close()
+                print("Closed Postgres connection")
+            except Exception as e:
+                print(f"Error closing Postgres connection: {e}")
+            finally:
+                self.db_conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        self.close()
