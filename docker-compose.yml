@@ -63,6 +63,11 @@ services:
       dockerfile: ./cpp/indexer/Dockerfile
     volumes:
       - ./data/crawled_pages:/shared_data
+    environment:
+      - DB_HOST=postgres_service
+      - DB_NAME=search_engine
+      - DB_USER=admin
+      - DB_PASS=password123
     depends_on:
       - redis_service
       - postgres_service

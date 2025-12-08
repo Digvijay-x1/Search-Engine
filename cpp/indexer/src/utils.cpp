@@ -21,7 +21,13 @@ std::string build_db_conn_str() {
     } else {
         std::string db_name = get_env_or_default("DB_NAME", "search_engine");
         std::string db_user = get_env_or_default("DB_USER", "admin");
-        std::string db_pass = get_env_or_default("DB_PASS", "password123");
+        
+        const char* env_pass = std::getenv("DB_PASS");
+        if (!env_pass) {
+            throw std::runtime_error("DB_PASS environment variable is required");
+        }
+        std::string db_pass(env_pass);
+
         std::string db_host = get_env_or_default("DB_HOST", "postgres_service");
         std::string db_port = get_env_or_default("DB_PORT", "5432");
         return "dbname=" + db_name + " user=" + db_user + " password=" + db_pass + " host=" + db_host + " port=" + db_port;
