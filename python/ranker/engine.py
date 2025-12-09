@@ -96,10 +96,10 @@ class Ranker:
                 # Use tuple(doc_ids) for SQL IN clause
                 # Handle single item tuple correctly
                 if len(doc_ids) == 1:
-                    query = "SELECT id, length FROM documents WHERE id = %s"
+                    query = "SELECT id, doc_length FROM documents WHERE id = %s"
                     params = (doc_ids[0],)
                 else:
-                    query = "SELECT id, length FROM documents WHERE id IN %s"
+                    query = "SELECT id, doc_length FROM documents WHERE id IN %s"
                     params = (tuple(doc_ids),)
                 
                 cur.execute(query, params)
