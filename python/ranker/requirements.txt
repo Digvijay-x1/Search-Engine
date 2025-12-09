@@ -1,5 +1,5 @@
 Cython<3.0
 flask
-git+https://github.com/twmht/python-rocksdb.git
+rocksdict
 psycopg2-binary
 numpy

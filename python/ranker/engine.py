@@ -4,13 +4,13 @@ import psycopg2
 import numpy as np
 from collections import defaultdict
 
-# Try to import rocksdb, fallback to mock if failed (e.g. build issues)
+# Try to import rocksdict, fallback to mock if failed
 try:
-    import rocksdb
+    from rocksdict import Rdict, Options, AccessType
     ROCKSDB_AVAILABLE = True
 except ImportError:
     ROCKSDB_AVAILABLE = False
-    print("WARNING: python-rocksdb not available. Using Mock Index.")
+    print("WARNING: rocksdict not available. Using Mock Index.")
 
 class Ranker:
     def __init__(self):
@@ -41,9 +41,8 @@ class Ranker:
         
         if ROCKSDB_AVAILABLE:
             try:
-                opts = rocksdb.Options()
                 # We only need read access
-                self.index_db = rocksdb.DB(rocksdb_path, opts, read_only=True)
+                self.index_db = Rdict(rocksdb_path, options=Options(), access_type=AccessType.read_only())
                 print(f"Opened RocksDB at {rocksdb_path}")
             except Exception as e:
                 print(f"Failed to open RocksDB: {e}")
@@ -235,6 +234,15 @@ class Ranker:
 
     def close(self):
         """Closes the database connection."""
+        if self.index_db:
+            try:
+                self.index_db.close()
+                print("Closed RocksDB connection")
+            except Exception as e:
+                print(f"Error closing RocksDB connection: {e}")
+            finally:
+                self.index_db = None
+
         if self.db_conn:
             try:
                 self.db_conn.close()
