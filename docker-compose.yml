@@ -13,9 +13,9 @@ services:
   postgres_service:
     image: postgres:17.2-alpine3.21
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: search_engine
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - ./data/init.sql:/docker-entrypoint-initdb.d/init.sql # Runs on first startup
       - pg_data:/var/lib/postgresql/data # Persistence
@@ -29,8 +29,13 @@ services:
       - "5000:5000"
     volumes:
       - ./python/ranker:/app # Hot-reloading for Python
+      - ./data/crawled_pages:/shared_data
     environment:
       - FLASK_ENV=development
+      - DB_HOST=postgres_service
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
     networks:
       - search_net
 
@@ -65,9 +70,9 @@ services:
       - ./data/crawled_pages:/shared_data
     environment:
       - DB_HOST=postgres_service
-      - DB_NAME=search_engine
-      - DB_USER=admin
-      - DB_PASS=password123
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
     depends_on:
       - redis_service
       - postgres_service

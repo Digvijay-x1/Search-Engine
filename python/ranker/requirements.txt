@@ -1,1 +1,5 @@
-flask==3.0.0
+Cython<3.0
+flask
+rocksdict
+psycopg2-binary
+numpy
