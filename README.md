@@ -1,6 +1,8 @@
-# Google-Like Search Engine
 
-![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Digvijay-x1/Search-Engine?utm_source=oss&utm_medium=github&utm_campaign=Digvijay-x1%2FSearch-Engine&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+# IGI
+
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/Digvijay-x1/IGI?utm_source=oss&utm_medium=github&utm_campaign=Digvijay-x1%2FIGI&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
+
 
 A high-performance, distributed search engine designed to crawl, index, and rank web content at scale. This project implements a Google-like search architecture using microservices, featuring a C++ crawler and indexer, Python-based BM25 ranking algorithm, and Ruby on Rails web interface.
 
