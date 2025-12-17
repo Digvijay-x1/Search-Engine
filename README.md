@@ -24,7 +24,7 @@ A high-performance, distributed search engine designed to crawl, index, and rank
 - [Contributing](#contributing)
 - [License](#license)
 
-## ✨ Features
+## <a name="features"></a>✨ Features
 
 - **Distributed Web Crawler**: High-performance C++ crawler with politeness controls and robots.txt support
 - **Efficient Indexing**: Inverted index using RocksDB for fast lookups
@@ -35,13 +35,13 @@ A high-performance, distributed search engine designed to crawl, index, and rank
 - **Redis Caching**: Fast query response with intelligent caching
 - **RESTful API**: Clean API interface for search queries
 
-## 🏗️ Architecture
+## <a name="architecture"></a>🏗️ Architecture
 
 This project follows a microservices-based, event-driven architecture with four main components:
 
 ![alt text](docs/architecture_diagram.png)
 
-## 🛠️ Technology Stack
+## <a name="technology-stack"></a>🛠️ Technology Stack
 
 | Component        | Technology            | Purpose                                    |
 | :--------------- | :-------------------- | :----------------------------------------- |
@@ -54,7 +54,7 @@ This project follows a microservices-based, event-driven architecture with four 
 | **Index Store**  | RocksDB               | High-performance key-value storage         |
 | **Containerization** | Docker & Docker Compose | Easy deployment and scaling            |
 
-## 📁 Project Structure
+## <a name="project-structure"></a>📁 Project Structure
 
 ```
 Search-Engine/
@@ -90,16 +90,16 @@ Search-Engine/
 └── README.md             # This file
 ```
 
-## 🚀 Getting Started
+## <a name="getting-started"></a>🚀 Getting Started
 
-### Prerequisites
+### <a name="prerequisites"></a>Prerequisites
 
 - **Docker** (version 20.10 or higher)
 - **Docker Compose** (version 2.0 or higher)
 - At least 4GB of available RAM
 - 10GB of free disk space
 
-### Installation
+### <a name="installation"></a>Installation
 
 1. **Clone the repository**
    ```bash
@@ -132,7 +132,7 @@ Search-Engine/
    - **Redis**: localhost:6380
    - **Crawler** and **Indexer**: Running in background
 
-### Configuration
+### <a name="configuration"></a>Configuration
 
 The project uses environment variables for configuration. Key variables include:
 
@@ -143,7 +143,7 @@ The project uses environment variables for configuration. Key variables include:
 - `FLASK_ENV`: Flask environment (development/production)
 - `ROCKSDB_PATH`: Path to RocksDB index files
 
-## 📖 Usage
+## <a name="usage"></a>📖 Usage
 
 ### Accessing the Search Interface
 
@@ -186,7 +186,7 @@ curl "http://localhost:5000/search?q=your+search+query"
 }
 ```
 
-## 📚 API Documentation
+## <a name="api-documentation"></a>📚 API Documentation
 
 ### Ranker Service API
 
@@ -219,7 +219,7 @@ Execute a search query.
   - `count`: Number of results
   - `latency_ms`: Query processing time
 
-## 🔧 Development
+## <a name="development"></a>🔧 Development
 
 ### Running Individual Services
 
@@ -285,7 +285,7 @@ docker-compose down
 docker-compose down -v
 ```
 
-## 🏛️ Architecture Details
+## <a name="architecture-details"></a>🏛️ Architecture Details
 
 For comprehensive architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -337,7 +337,7 @@ For comprehensive architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE
    - Rails fetches metadata from PostgreSQL
    - Results displayed to user
 
-## 🐛 Troubleshooting
+## <a name="troubleshooting"></a>🐛 Troubleshooting
 
 ### Common Issues
 
@@ -394,7 +394,7 @@ curl http://localhost:5000/health
 curl http://localhost:3000
 ```
 
-## 🤝 Contributing
+## <a name="contributing"></a>🤝 Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -412,7 +412,7 @@ Contributions are welcome! Please follow these steps:
 - Update documentation as needed
 - Ensure Docker builds succeed
 
-## 📄 License
+## <a name="license"></a>📄 License
 
 This project is open source and available under the MIT License.
 
